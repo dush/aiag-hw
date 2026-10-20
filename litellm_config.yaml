@@ -1,0 +1,33 @@
+model_list:
+  # OpenRouter free model. Supports tool calling (checked against
+  # https://openrouter.ai/api/v1/models). Needs OPENROUTER_API_KEY in .env.
+  # Free models are rate limited and the free pool changes - if this id stops
+  # working, pick another `:free` id from that list.
+  - model_name: openrouter-gemma
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  # Fallback on a different provider, used when the Gemma pool is rate limited.
+  - model_name: openrouter-minimax
+    litellm_params:
+      model: openrouter/minimax/minimax-m3.1-flash:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+litellm_settings:
+  # Send each provider the parameters it understands and drop the rest.
+  drop_params: true
+
+router_settings:
+  # Free models are often rate limited upstream (429); retry with backoff.
+  num_retries: 2
+  retry_after: 5
+  fallbacks:
+    - openrouter-gemma: ["openrouter-minimax"]
+
+general_settings:
+  # Local development only: the proxy refuses to start without a master key.
+  # The port is bound to localhost in docker-compose.yml. To require a key
+  # instead, set master_key: os.environ/LITELLM_MASTER_KEY and use the same
+  # value as LITELLM_API_KEY for the client.
+  dangerously_permit_weak_or_unset_master_key: true
