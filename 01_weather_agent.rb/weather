@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Runs the weather agent from any directory.
+exec ruby "$(dirname "$0")/weather.rb" "$@"
