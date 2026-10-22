@@ -10,8 +10,7 @@ model provider directly (OpenRouter by default); there is no LiteLLM proxy. Ruby
 - `lib/geocoder.rb`: `Geocoder` tool, place name to coordinates (Open-Meteo geocoding).
 - `lib/my_location.rb`: `MyLocation` tool, approximate location from the public IP ([ipwho.is](https://ipwho.is/)).
 - `lib/weather_forecast.rb`: `WeatherForecast` tool, 7-day ECMWF forecast from Open-Meteo.
-- `lib/weather_tool.rb`: base class that returns tool exceptions to the model as `{ error: ... }` so it can recover.
-- `lib/http_utils.rb`: JSON GET helper (`Net::HTTP`).
+- `lib/base_tool.rb`: base class that returns tool exceptions to the model as `{ error: ... }` so it can recover.
 
 ```sh
 cd 01_weather_agent.rb

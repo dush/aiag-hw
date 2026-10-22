@@ -10,7 +10,6 @@ Dotenv.load(File.expand_path("../.env", __dir__), ".env")
 
 require "logger"
 require "ruby_llm"
-require_relative "lib/weather_agent"
 
 module App
   def self.config

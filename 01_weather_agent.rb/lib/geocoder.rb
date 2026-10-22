@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-require_relative "http_utils"
-require_relative "weather_tool"
+require "httpx"
+require_relative "base_tool"
 
 Location = Data.define(:name, :latitude, :longitude)
 
 # Resolves a place name to coordinates via Open-Meteo geocoding.
-class Geocoder < WeatherTool
+class Geocoder < BaseTool
   GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
   description "Resolves a place name to a Location (name, latitude, longitude) via Open-Meteo geocoding."
@@ -14,11 +14,11 @@ class Geocoder < WeatherTool
 
   def initialize(timeout: 10.0)
     super()
-    @timeout = timeout
+    @http = HTTPX.with(timeout: { request_timeout: timeout })
   end
 
   def execute(name:)
-    data = HttpUtils.get_json(GEOCODING_URL, { name: name, count: 1 }, @timeout)
+    data = @http.get(GEOCODING_URL, params: { name: name, count: 1 }).raise_for_status.json
     best = data["results"]&.first
     fail LookupError, "location not found: #{name.inspect}" unless best
 

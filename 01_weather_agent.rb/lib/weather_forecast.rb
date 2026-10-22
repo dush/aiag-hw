@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require_relative "http_utils"
-require_relative "weather_tool"
+require "httpx"
+require_relative "base_tool"
 
 # Daily ECMWF forecast from Open-Meteo.
-class WeatherForecast < WeatherTool
+class WeatherForecast < BaseTool
   ECMWF_URL = "https://api.open-meteo.com/v1/ecmwf"
   DAILY_VARIABLES = %w[temperature_2m_max temperature_2m_min precipitation_sum].freeze
 
@@ -18,21 +18,20 @@ class WeatherForecast < WeatherTool
     fail ArgumentError, "days must be between 1 and 15" unless (1..15).cover?(days)
 
     @days = days
-    @timeout = timeout
+    @http = HTTPX.with(timeout: { request_timeout: timeout })
   end
 
   def execute(latitude:, longitude:)
-    data = HttpUtils.get_json(
+    data = @http.get(
       ECMWF_URL,
-      {
+      params: {
         latitude: latitude,
         longitude: longitude,
         daily: DAILY_VARIABLES.join(","),
         timezone: "auto",
         forecast_days: @days
-      },
-      @timeout
-    )
+      }
+    ).raise_for_status.json
     daily = data.fetch("daily")
     daily["time"].zip(*daily.values_at(*DAILY_VARIABLES)).map do |date, temp_max, temp_min, precipitation|
       { date: date, temp_max: temp_max, temp_min: temp_min, precipitation: precipitation }
