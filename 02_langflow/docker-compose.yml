@@ -1,0 +1,140 @@
+# Local development Langflow + PostgreSQL.
+# Based on https://github.com/langflow-ai/langflow/tree/main/docker_example
+# Usage: create .env with POSTGRES_PASSWORD and OPENROUTER_API_KEY (see .env.example), then `docker compose up`.
+# Set RUIAN_IMPORT=true (in .env or the shell) to run the n8n RUIAN import before Langflow starts.
+services:
+  langflow:
+    image: langflowai/langflow:latest # or pin a version tag from https://hub.docker.com/r/langflowai/langflow
+    pull_policy: always               # set to 'always' when using 'latest' image
+    ports:
+      - "7860:7860"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      n8n-import:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -c
+      - |
+        export LANGFLOW_DATABASE_URL="$(python -c 'import os; from urllib.parse import quote; print("postgresql://langflow:" + quote(os.environ["POSTGRES_PASSWORD"], safe="") + "@postgres:5432/langflow")')"
+        exec langflow run
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      - LANGFLOW_AUTO_LOGIN=true
+      # Database the RUIAN Search component (ruian-agent) reads. Optional; empty means the compose postgres,
+      # database `ruian`. E.g. postgresql://user:pass@host:5432/ruian
+      - RUIAN_DATABASE_URL=${RUIAN_DATABASE_URL:-}
+      # Where logs, file storage, monitor data and secret keys are stored.
+      - LANGFLOW_CONFIG_DIR=/app/langflow
+      # Imported as global variables on every start (updated unless edited in the UI). They configure the
+      # "OpenAI Compatible" model provider (Settings -> Model Providers).
+      - LANGFLOW_VARIABLES_TO_GET_FROM_ENVIRONMENT=OPENAI_COMPATIBLE_BASE_URL,OPENAI_COMPATIBLE_API_KEY
+      # Model provider "OpenAI Compatible" of the agent flows' Agent node. Default: the `litellm` service
+      # below. The model name is stored in the flows (scripts/build_*_agent_flow.py, LLM_MODEL).
+      - OPENAI_COMPATIBLE_BASE_URL=${LLM_API_URL:-http://litellm:4000/v1}
+      - OPENAI_COMPATIBLE_API_KEY=${LLM_API_KEY:-sk-local}
+      # Langflow's SSRF protection blocks private addresses; let model calls reach the litellm service.
+      - LANGFLOW_SSRF_ALLOWED_HOSTS=litellm
+      # Langflow only sends an API key from the server environment to a provider's default endpoint, or
+      # to these hosts. `http://` allows cleartext (litellm is on the internal Docker network).
+      - LANGFLOW_PROVIDER_CREDENTIAL_ALLOWED_HOSTS=http://litellm
+    volumes:
+      - langflow-data:/app/langflow
+
+  # LLM proxy for the agent flows (OpenAI-compatible API). Models: litellm_config.yaml.
+  # Host access (curl, `lfx run` on the host): http://127.0.0.1:4001/v1. Port 4001, so it does not clash
+  # with the LiteLLM of the parent directory on 4000.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    ports:
+      - "127.0.0.1:4001:4000"
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    restart: unless-stopped
+
+  postgres:
+    # Pinned to Debian trixie so the postgres:16 tag does not silently change its OS
+    # and cause a glibc collation mismatch on existing volumes.
+    # See https://github.com/langflow-ai/langflow/issues/9608
+    image: postgres:16-trixie
+    environment:
+      POSTGRES_USER: langflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: langflow
+    volumes:
+      - langflow-postgres:/var/lib/postgresql/data
+      # CSV files written by the n8n import (service n8n-import), read with COPY ... FROM '/import/...'.
+      - ruian-import:/import:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langflow -d langflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot RUIAN import with n8n. On `docker compose up` it runs before langflow,
+  # but only when RUIAN_IMPORT=true; otherwise it exits 0 at once. To run it on demand:
+  #   docker compose run --rm -e RUIAN_IMPORT=true n8n-import
+  # n8n unzips data/*_OB_ADR_csv.zip into the `ruian-import` volume; the `postgres` service reads the
+  # CSV files from there with COPY (mounted read-only at /import). n8n keeps its own state in a throwaway
+  # SQLite database inside the container, so nothing remains after the run.
+  #
+  # Make the shared volume writable for n8n (uid 1000). Postgres only needs read access.
+  n8n-import-init:
+    image: n8nio/n8n:2.45.4
+    user: root
+    entrypoint: ["/bin/sh", "-c", "chown 1000:1000 /import && chmod 755 /import"]
+    volumes:
+      - ruian-import:/import
+
+  n8n-import:
+    image: n8nio/n8n:2.45.4
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ "$$RUIAN_IMPORT" != "true" ]; then
+          echo "RUIAN_IMPORT is not 'true': skipping the RUIAN import."
+          exit 0
+        fi
+        exec /bin/sh /n8n-import/run.sh
+    depends_on:
+      postgres:
+        condition: service_healthy
+      n8n-import-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/data:ro
+      - ./n8n:/n8n-import:ro
+      - ruian-import:/import
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # `true` runs the import; anything else skips it.
+      - RUIAN_IMPORT=${RUIAN_IMPORT:-}
+      # Target database (created if missing). Use another name for test runs.
+      - RUIAN_DB=${RUIAN_DB:-ruian}
+      # Load only the first N CSV files (0 = all).
+      - RUIAN_MAX_FILES=${RUIAN_MAX_FILES:-0}
+      # n8n settings for this run.
+      - N8N_USER_FOLDER=/tmp/n8n
+      - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=10000
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - N8N_RESTRICT_FILE_ACCESS_TO=/data;/import
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_RUNNERS_ENABLED=true
+
+volumes:
+  langflow-postgres:
+  langflow-data:
+  ruian-import:

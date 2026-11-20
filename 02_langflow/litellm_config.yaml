@@ -1,0 +1,34 @@
+# LiteLLM proxy of this project (service `litellm` in docker-compose.yml). The agent flows' Agent
+# (OpenAI Compatible model provider) calls it at http://litellm:4000/v1 with the model name stored in
+# the flows (LLM_MODEL when they were built).
+# Needs OPENROUTER_API_KEY in .env.
+model_list:
+  # Default (LLM_MODEL default). OpenRouter's Free Models Router: picks a free model at random from
+  # the models that support the request (e.g. tool calling). Rate limited like all free models.
+  - model_name: openrouter/free
+    litellm_params:
+      model: openrouter/openrouter/free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  # A fixed free model, for reproducible runs: LLM_MODEL=openrouter-gemma.
+  - model_name: openrouter-gemma
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+litellm_settings:
+  # Send each provider the parameters it understands and drop the rest.
+  drop_params: true
+
+router_settings:
+  # Free models are often rate limited upstream (429); retry with backoff.
+  num_retries: 2
+  retry_after: 5
+  fallbacks:
+    - openrouter-gemma: ["openrouter/free"]
+
+general_settings:
+  # Local development only: the proxy refuses to start without a master key. The port is bound to
+  # localhost in docker-compose.yml. To require a key, set master_key: os.environ/LITELLM_MASTER_KEY
+  # and use the same value as LLM_API_KEY.
+  dangerously_permit_weak_or_unset_master_key: true

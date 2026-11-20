@@ -1,0 +1,27 @@
+# .lfx/environments.yaml
+#
+# Configure your Langflow instances here.
+# Safe to commit — API keys are NEVER stored in this file.
+# The api_key_env value is the NAME of an environment variable that holds
+# the actual API key; set that variable in your shell or CI secrets.
+#
+# Quick start:
+#   1. Open Langflow → Settings → API Keys → Create a new key
+#   2. export LANGFLOW_LOCAL_API_KEY=<your key>
+#   3. lfx export --env local --flow-id <uuid> --output-dir flows/
+
+environments:
+  local:
+    url: http://localhost:7860
+    api_key_env: LANGFLOW_LOCAL_API_KEY
+
+  staging:
+    url: https://staging.langflow.example.com
+    api_key_env: LANGFLOW_STAGING_API_KEY
+
+  production:
+    url: https://langflow.example.com
+    api_key_env: LANGFLOW_PROD_API_KEY
+
+defaults:
+  environment: local

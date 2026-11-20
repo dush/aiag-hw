@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "langflow": {
+      "command": "uvx",
+      "args": ["--env-file", ".env", "--from", "lfx", "lfx-mcp"],
+      "env": {
+        "LANGFLOW_SERVER_URL": "http://localhost:7860"
+      }
+    }
+  }
+}

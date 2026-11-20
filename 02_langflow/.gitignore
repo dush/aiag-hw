@@ -1,0 +1,3 @@
+# Langflow credentials -- never commit API keys
+# (langflow-environments.toml may contain literal keys; .lfx/environments.yaml is safe to commit)
+langflow-environments.toml

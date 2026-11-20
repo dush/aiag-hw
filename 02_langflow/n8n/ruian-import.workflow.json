@@ -1,0 +1,368 @@
+{
+  "id": "ruianImportN8n",
+  "name": "RUIAN import",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "check-database",
+      "name": "Check database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '{{ /^[a-z_][a-z0-9_]{0,62}$/.test($env.RUIAN_DB) ? $env.RUIAN_DB : '' }}') AS db_exists",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ruianPgAdmin",
+          "name": "RUIAN Postgres (admin)"
+        }
+      }
+    },
+    {
+      "id": "database-exists?",
+      "name": "Database exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "db-exists",
+              "leftValue": "={{ $json.db_exists }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "create-database",
+      "name": "Create database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=CREATE DATABASE \"{{ /^[a-z_][a-z0-9_]{0,62}$/.test($env.RUIAN_DB) ? $env.RUIAN_DB : '' }}\"",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ruianPgAdmin",
+          "name": "RUIAN Postgres (admin)"
+        }
+      }
+    },
+    {
+      "id": "prepare-schema",
+      "name": "Prepare schema",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nCREATE TABLE IF NOT EXISTS obec (\n    kod   integer PRIMARY KEY,\n    nazev text NOT NULL\n);\nCREATE TABLE IF NOT EXISTS obvod_prahy (\n    kod      integer PRIMARY KEY,\n    nazev    text NOT NULL,\n    obec_kod integer NOT NULL REFERENCES obec (kod) DEFERRABLE INITIALLY DEFERRED\n);\nCREATE TABLE IF NOT EXISTS momc (\n    kod             integer PRIMARY KEY,\n    nazev           text NOT NULL,\n    obec_kod        integer NOT NULL REFERENCES obec (kod) DEFERRABLE INITIALLY DEFERRED,\n    obvod_prahy_kod integer REFERENCES obvod_prahy (kod) DEFERRABLE INITIALLY DEFERRED\n);\nCREATE TABLE IF NOT EXISTS cast_obce (\n    kod      integer PRIMARY KEY,\n    nazev    text NOT NULL,\n    obec_kod integer NOT NULL REFERENCES obec (kod) DEFERRABLE INITIALLY DEFERRED\n);\nCREATE TABLE IF NOT EXISTS ulice (\n    kod      integer PRIMARY KEY,\n    nazev    text NOT NULL,\n    obec_kod integer NOT NULL REFERENCES obec (kod) DEFERRABLE INITIALLY DEFERRED\n);\nCREATE TABLE IF NOT EXISTS adresni_misto (\n    kod                    integer PRIMARY KEY,\n    obec_kod               integer NOT NULL REFERENCES obec (kod) DEFERRABLE INITIALLY DEFERRED,\n    momc_kod               integer REFERENCES momc (kod) DEFERRABLE INITIALLY DEFERRED,\n    obvod_prahy_kod        integer REFERENCES obvod_prahy (kod) DEFERRABLE INITIALLY DEFERRED,\n    cast_obce_kod          integer NOT NULL REFERENCES cast_obce (kod) DEFERRABLE INITIALLY DEFERRED,\n    ulice_kod              integer REFERENCES ulice (kod) DEFERRABLE INITIALLY DEFERRED,\n    typ_so                 text NOT NULL CHECK (typ_so IN ('č.p.', 'č.ev.')),\n    cislo_domovni          integer NOT NULL,\n    cislo_orientacni       integer,\n    znak_cisla_orientacniho text,\n    psc                    char(5) NOT NULL,\n    souradnice_y           numeric(12, 2),\n    souradnice_x           numeric(12, 2),\n    plati_od               date NOT NULL\n);\nCREATE INDEX IF NOT EXISTS adresni_misto_obec_idx ON adresni_misto (obec_kod);\nCREATE INDEX IF NOT EXISTS adresni_misto_cast_obce_idx ON adresni_misto (cast_obce_kod);\nCREATE INDEX IF NOT EXISTS adresni_misto_ulice_idx ON adresni_misto (ulice_kod);\nCREATE INDEX IF NOT EXISTS adresni_misto_psc_idx ON adresni_misto (psc);\nCOMMENT ON TABLE obec IS 'Obec (Kód obce / Název obce)';\nCOMMENT ON TABLE obvod_prahy IS 'Obvod Prahy (Kód obvodu Prahy), jen Praha';\nCOMMENT ON TABLE momc IS 'Městský obvod / městská část (Kód MOMC), jen členěná statutární města';\nCOMMENT ON TABLE cast_obce IS 'Část obce';\nCOMMENT ON TABLE ulice IS 'Ulice (jen obce se zavedenou uliční sítí)';\nCOMMENT ON TABLE adresni_misto IS 'Adresní místo (Kód ADM); souřadnice v S-JTSK [m]';\n\nCREATE EXTENSION IF NOT EXISTS unaccent;\n-- lower() + unaccent(), declared IMMUTABLE so it can be used in generated columns and indexes.\nCREATE OR REPLACE FUNCTION ruian_norm(text) RETURNS text\n    LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\n    RETURN public.unaccent('public.unaccent'::regdictionary, lower($1));\nALTER TABLE obec ADD COLUMN IF NOT EXISTS nazev_tsv tsvector\n    GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, ruian_norm(nazev))) STORED;\nALTER TABLE obvod_prahy ADD COLUMN IF NOT EXISTS nazev_tsv tsvector\n    GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, ruian_norm(nazev))) STORED;\nALTER TABLE momc ADD COLUMN IF NOT EXISTS nazev_tsv tsvector\n    GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, ruian_norm(nazev))) STORED;\nALTER TABLE cast_obce ADD COLUMN IF NOT EXISTS nazev_tsv tsvector\n    GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, ruian_norm(nazev))) STORED;\nALTER TABLE ulice ADD COLUMN IF NOT EXISTS nazev_tsv tsvector\n    GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, ruian_norm(nazev))) STORED;\nCREATE INDEX IF NOT EXISTS obec_nazev_tsv_idx ON obec USING gin (nazev_tsv);\nCREATE INDEX IF NOT EXISTS obvod_prahy_nazev_tsv_idx ON obvod_prahy USING gin (nazev_tsv);\nCREATE INDEX IF NOT EXISTS momc_nazev_tsv_idx ON momc USING gin (nazev_tsv);\nCREATE INDEX IF NOT EXISTS cast_obce_nazev_tsv_idx ON cast_obce USING gin (nazev_tsv);\nCREATE INDEX IF NOT EXISTS ulice_nazev_tsv_idx ON ulice USING gin (nazev_tsv);\n-- Parent filters of the search tools.\nCREATE INDEX IF NOT EXISTS cast_obce_obec_idx ON cast_obce (obec_kod);\nCREATE INDEX IF NOT EXISTS ulice_obec_idx ON ulice (obec_kod);\nCREATE INDEX IF NOT EXISTS adresni_misto_momc_idx ON adresni_misto (momc_kod);\nCREATE INDEX IF NOT EXISTS adresni_misto_obvod_prahy_idx ON adresni_misto (obvod_prahy_kod);\nDROP TABLE IF EXISTS ruian_stage;\nCREATE UNLOGGED TABLE ruian_stage (kod_adm text, obec_kod text, obec_nazev text, momc_kod text, momc_nazev text, obvod_prahy_kod text, obvod_prahy_nazev text, cast_obce_kod text, cast_obce_nazev text, ulice_kod text, ulice_nazev text, typ_so text, cislo_domovni text, cislo_orientacni text, znak_cisla_orientacniho text, psc text, souradnice_y text, souradnice_x text, plati_od text);\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ruianPgTarget",
+          "name": "RUIAN Postgres (target)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "read-zip",
+      "name": "Read zip",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/data/*_OB_ADR_csv.zip",
+        "options": {}
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "decompress",
+      "name": "Decompress",
+      "type": "n8n-nodes-base.compression",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "operation": "decompress",
+        "binaryPropertyName": "data",
+        "outputPrefix": "file_"
+      }
+    },
+    {
+      "id": "one-item-per-csv",
+      "name": "One item per CSV",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "fieldToSplitOut": "$binary",
+        "options": {}
+      }
+    },
+    {
+      "id": "max-files",
+      "name": "Max files",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "maxItems": "={{ Number($env.RUIAN_MAX_FILES) > 0 ? Number($env.RUIAN_MAX_FILES) : 1000000 }}"
+      }
+    },
+    {
+      "id": "write-csv",
+      "name": "Write CSV",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/import/ruian/{{ $binary[Object.keys($binary)[0]].fileName.split('/').pop() }}",
+        "dataPropertyName": "={{ Object.keys($binary)[0] }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "copy-into-staging",
+      "name": "COPY into staging",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=COPY ruian_stage FROM '{{ /^\\/import\\/ruian\\/\\d{8}_OB_\\d+_ADR\\.csv$/.test($json.fileName) ? $json.fileName : '' }}' WITH (FORMAT csv, DELIMITER ';', HEADER true, ENCODING 'WIN1250')",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ruianPgTarget",
+          "name": "RUIAN Postgres (target)"
+        }
+      }
+    },
+    {
+      "id": "load-tables",
+      "name": "Load tables",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2420,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nBEGIN;\nTRUNCATE adresni_misto, ulice, cast_obce, momc, obvod_prahy, obec;\nINSERT INTO obec (kod, nazev)\n    SELECT DISTINCT ON (obec_kod::int) obec_kod::int, btrim(obec_nazev)\n    FROM ruian_stage ORDER BY obec_kod::int;\nINSERT INTO obvod_prahy (kod, nazev, obec_kod)\n    SELECT DISTINCT ON (obvod_prahy_kod::int) obvod_prahy_kod::int, btrim(obvod_prahy_nazev), obec_kod::int\n    FROM ruian_stage WHERE nullif(btrim(obvod_prahy_kod), '') IS NOT NULL ORDER BY obvod_prahy_kod::int;\nINSERT INTO momc (kod, nazev, obec_kod, obvod_prahy_kod)\n    SELECT DISTINCT ON (momc_kod::int) momc_kod::int, btrim(momc_nazev), obec_kod::int, nullif(btrim(obvod_prahy_kod), '')::int\n    FROM ruian_stage WHERE nullif(btrim(momc_kod), '') IS NOT NULL ORDER BY momc_kod::int;\nINSERT INTO cast_obce (kod, nazev, obec_kod)\n    SELECT DISTINCT ON (cast_obce_kod::int) cast_obce_kod::int, btrim(cast_obce_nazev), obec_kod::int\n    FROM ruian_stage ORDER BY cast_obce_kod::int;\nINSERT INTO ulice (kod, nazev, obec_kod)\n    SELECT DISTINCT ON (ulice_kod::int) ulice_kod::int, btrim(ulice_nazev), obec_kod::int\n    FROM ruian_stage WHERE nullif(btrim(ulice_kod), '') IS NOT NULL ORDER BY ulice_kod::int;\nINSERT INTO adresni_misto (kod, obec_kod, momc_kod, obvod_prahy_kod, cast_obce_kod, ulice_kod, typ_so,\n                           cislo_domovni, cislo_orientacni, znak_cisla_orientacniho, psc,\n                           souradnice_y, souradnice_x, plati_od)\n    SELECT kod_adm::int, obec_kod::int, nullif(btrim(momc_kod), '')::int, nullif(btrim(obvod_prahy_kod), '')::int, cast_obce_kod::int,\n           nullif(btrim(ulice_kod), '')::int, btrim(typ_so), cislo_domovni::int, nullif(btrim(cislo_orientacni), '')::int,\n           nullif(btrim(znak_cisla_orientacniho), ''), btrim(psc), nullif(btrim(souradnice_y), '')::numeric, nullif(btrim(souradnice_x), '')::numeric,\n           nullif(btrim(plati_od), '')::timestamp::date\n    FROM ruian_stage;\nDROP TABLE ruian_stage;\nCOMMIT;\nANALYZE;\nSELECT (SELECT count(*) FROM obec) AS obec, (SELECT count(*) FROM obvod_prahy) AS obvod_prahy,\n       (SELECT count(*) FROM momc) AS momc, (SELECT count(*) FROM cast_obce) AS cast_obce,\n       (SELECT count(*) FROM ulice) AS ulice, (SELECT count(*) FROM adresni_misto) AS adresni_misto;\n",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "ruianPgTarget",
+          "name": "RUIAN Postgres (target)"
+        }
+      },
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Check database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check database": {
+      "main": [
+        [
+          {
+            "node": "Database exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database exists?": {
+      "main": [
+        [
+          {
+            "node": "Prepare schema",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create database": {
+      "main": [
+        [
+          {
+            "node": "Prepare schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare schema": {
+      "main": [
+        [
+          {
+            "node": "Read zip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read zip": {
+      "main": [
+        [
+          {
+            "node": "Decompress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decompress": {
+      "main": [
+        [
+          {
+            "node": "One item per CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per CSV": {
+      "main": [
+        [
+          {
+            "node": "Max files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Max files": {
+      "main": [
+        [
+          {
+            "node": "Write CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write CSV": {
+      "main": [
+        [
+          {
+            "node": "COPY into staging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COPY into staging": {
+      "main": [
+        [
+          {
+            "node": "Load tables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
