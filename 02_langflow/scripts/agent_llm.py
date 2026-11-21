@@ -1,4 +1,4 @@
-"""Shared helpers for the agent flow builders: edges and the Agent's model.
+"""Helpers for scripts/build_ruian_agent_flow.py: edges and the Agent's model.
 
 configure_agent_model() sets the Agent's Language Model to the "OpenAI Compatible" model provider
 (the lfx-openai-compatible bundle shipped with Langflow). The provider's base URL and API key are

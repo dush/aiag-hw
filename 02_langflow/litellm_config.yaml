@@ -1,6 +1,6 @@
-# LiteLLM proxy of this project (service `litellm` in docker-compose.yml). The agent flows' Agent
-# (OpenAI Compatible model provider) calls it at http://litellm:4000/v1 with the model name stored in
-# the flows (LLM_MODEL when they were built).
+# LiteLLM proxy of this project (service `litellm` in docker-compose.yml). The Agent of the ruian-agent
+# flow (OpenAI Compatible model provider) calls it at http://litellm:4000/v1 with the model name stored
+# in the flow (LLM_MODEL when it was built).
 # Needs OPENROUTER_API_KEY in .env.
 model_list:
   # Default (LLM_MODEL default). OpenRouter's Free Models Router: picks a free model at random from

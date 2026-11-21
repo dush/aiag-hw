@@ -6,9 +6,9 @@ Local development environment for [Langflow](https://github.com/langflow-ai/lang
 
 | Service    | Image                         | Purpose                         | Port |
 |------------|-------------------------------|---------------------------------|------|
-| `langflow` | `langflowai/langflow:latest`  | Langflow UI and API             | 7860 |
+| `langflow` | `langflowai/langflow:1.13.3`  | Langflow UI and API             | 7860 |
 | `postgres` | `postgres:16-trixie`          | Langflow database               | none (internal only) |
-| `litellm`  | `ghcr.io/berriai/litellm:main-stable` | LLM proxy for the agent flows (models in `litellm_config.yaml`) | 127.0.0.1:4001 |
+| `litellm`  | `ghcr.io/berriai/litellm:main-stable` | LLM proxy for the `ruian-agent` flow (models in `litellm_config.yaml`) | 127.0.0.1:4001 |
 | `n8n-import` (+ `n8n-import-init`) | `n8nio/n8n:2.45.4` | One-shot RUIAN import, only with `RUIAN_IMPORT=true` | none |
 
 Data is kept in named volumes: `langflow-data` (logs, files, secret keys), `langflow-postgres` (databases `langflow` and `ruian`) and `ruian-import` (temporary CSV files of the n8n import, empty after a run).
@@ -17,9 +17,9 @@ Data is kept in named volumes: `langflow-data` (logs, files, secret keys), `lang
 
 | Path | Contents |
 |------|----------|
-| `flows/` | Flow JSON files: `hello-world`, `simple-agent`, [`ruian-agent`](#ruian-search-component-and-agent-flow). Push them with `lfx push --dir flows/ --env local`. |
+| `flows/` | Flow JSON: [`ruian-agent`](#ruian-search-component-and-agent-flow). Push it with `uv run --env-file .env lfx push --dir flows/ --env local`. |
 | `components/` | Custom component source: `ruian_search_component.py` (RUIAN Search tools). The `ruian-agent` flow embeds this code; `scripts/build_ruian_agent_flow.py` regenerates it. |
-| `scripts/` | Flow and workflow generators (`build_simple_agent_flow.py` and `build_ruian_agent_flow.py` share `agent_llm.py`), `ruian_schema.py` (schema of the `ruian` database), `smoke_ruian_search.py` (checks the RUIAN Search tools). |
+| `scripts/` | Flow and workflow generators (`build_ruian_agent_flow.py` with `agent_llm.py`, `build_ruian_n8n_workflow.py`), `ruian_schema.py` (schema of the `ruian` database), `smoke_ruian_search.py` (checks the RUIAN Search tools). |
 | `litellm_config.yaml` | Models of the `litellm` service. |
 | `n8n/` | The n8n import workflow and its container entry point (`run.sh`). |
 | `tests/` | Unit tests for RUIAN Search (`test_ruian_search_component.py`) and integration-test templates (`test_flows.py`). |
@@ -46,19 +46,19 @@ POSTGRES_PASSWORD=change-me
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-`POSTGRES_PASSWORD` is required. If it is missing, `docker compose` stops with an error that names it. Without `OPENROUTER_API_KEY` the stack starts, but the agent flows fail with `AuthenticationError ... No cookie auth credentials found` (401 from OpenRouter). After adding it, run `docker compose up -d litellm`; `restart` keeps the old environment.
+`POSTGRES_PASSWORD` is required. If it is missing, `docker compose` stops with an error that names it. Without `OPENROUTER_API_KEY` the stack starts, but the `ruian-agent` flow fails with `AuthenticationError ... No cookie auth credentials found` (401 from OpenRouter). After adding it, run `docker compose up -d litellm`; `restart` keeps the old environment.
 
 `LANGFLOW_SUPERUSER_PASSWORD` is not needed: `docker-compose.yml` sets `LANGFLOW_AUTO_LOGIN=true`, so the UI opens without a login.
 
 ### LLM
 
-The Agent of the agent flows (`simple-agent`, `ruian-agent`) uses Langflow's built-in **OpenAI Compatible** model provider. By default it talks to the `litellm` service of this compose file and uses its `openrouter/free` model ([OpenRouter's Free Models Router](https://openrouter.ai/openrouter/free), which picks a free model that supports the request, e.g. tool calling), so no OpenAI key is needed. Free models are rate limited (429) and the router's choice changes between runs; for repeatable runs use `openrouter-gemma`, or add a model to `litellm_config.yaml` and run `docker compose restart litellm`.
+The Agent of the `ruian-agent` flow uses Langflow's built-in **OpenAI Compatible** model provider. By default it talks to the `litellm` service of this compose file and uses its `openrouter/free` model ([OpenRouter's Free Models Router](https://openrouter.ai/openrouter/free), which picks a free model that supports the request, e.g. tool calling), so no OpenAI key is needed. Free models are rate limited (429) and the router's choice changes between runs; for repeatable runs use `openrouter-gemma`, or add a model to `litellm_config.yaml` and run `docker compose restart litellm`.
 
 | Variable          | Default | Read by | Meaning |
 |-------------------|---------|---------|---------|
 | `LLM_API_URL`     | `http://litellm:4000/v1` | `docker compose` (at start) | Base URL of the OpenAI-compatible API, as seen from the `langflow` container. The provider adds `/v1` if it is missing. |
 | `LLM_API_KEY`     | placeholder | `docker compose` (at start) | API key. LiteLLM without a master key accepts any value. |
-| `LLM_MODEL`       | `openrouter/free` | flow build scripts (shell environment; `.env` is not read) | Model name stored in the agent flows. For LiteLLM, a `model_name` from `litellm_config.yaml` (`openrouter/free`, `openrouter-gemma`). |
+| `LLM_MODEL`       | `openrouter/free` | flow build scripts (shell environment; `.env` is not read) | Model name stored in the flow. For LiteLLM, a `model_name` from `litellm_config.yaml` (`openrouter/free`, `openrouter-gemma`). |
 | `OPENROUTER_API_KEY` | none | `docker compose` (at start) | OpenRouter key, read by the `litellm` service. |
 
 How it works:
@@ -67,20 +67,19 @@ How it works:
 - The model name is part of the flow, so `LLM_MODEL` applies when the flows are generated. Change it with:
   ```sh
   export LLM_MODEL=openrouter-gemma
-  uv run python scripts/build_simple_agent_flow.py && uv run python scripts/build_ruian_agent_flow.py
-  lfx push --dir flows/ --env local
+  uv run python scripts/build_ruian_agent_flow.py
+  uv run --env-file .env lfx push --dir flows/ --env local
   ```
   To try another model without regenerating, pick it in the Agent's Language Model field in the UI (the list comes from LiteLLM).
 - `LANGFLOW_SSRF_ALLOWED_HOSTS=litellm` lets Langflow call the `litellm` service; its SSRF protection blocks private addresses otherwise. `LANGFLOW_PROVIDER_CREDENTIAL_ALLOWED_HOSTS=http://litellm` lets it send the API key from the environment to that host over plain HTTP; without it the Agent fails with "Refusing to send a server-provisioned API credential to the non-default endpoint". If `LLM_API_URL` points to another host, add it to both settings in `docker-compose.yml` (for HTTPS hosts, without `http://`).
-- Run the agent flows in the Langflow server (UI, API, `lfx push`). `lfx run` does not load the OpenAI Compatible provider bundle and sends the request to api.openai.com instead.
+- Run the flow in the Langflow server (UI, API, `lfx push`). `lfx run` does not load the OpenAI Compatible provider bundle and sends the request to api.openai.com instead.
 
-Optional variables for working with the API and MCP server. `docker-compose.yml` does not read them, so export them in your shell (or keep them in `.env` and load it yourself) rather than relying on Compose:
+Optional variables for working with the API, `lfx` and the MCP server. `docker-compose.yml` does not pass them to the containers; keep them in `.env` (the MCP server and the `uv run --env-file .env lfx ...` commands read it) or export them:
 
 | Variable                    | Used by                                        |
 |-----------------------------|------------------------------------------------|
-| `LANGFLOW_API_KEY`          | `.mcp.json` (langflow MCP server), API calls   |
-| `LANGFLOW_LOCAL_API_KEY`    | `lfx` commands via `.lfx/environments.yaml`    |
-| `OPENAI_API_KEY`            | Only flows that use OpenAI directly (not the agent flows, see [LLM](#llm)) |
+| `LANGFLOW_API_KEY`          | `.mcp.json` (lfx-mcp server), `lfx push/pull/status --env local` (`.lfx/environments.yaml`), API calls |
+| `OPENAI_API_KEY`            | Only flows that use OpenAI directly (not `ruian-agent`, see [LLM](#llm)) |
 
 ## Run
 
@@ -101,11 +100,7 @@ With `LANGFLOW_AUTO_LOGIN=true` the UI needs no credentials, but since Langflow 
    ```sh
    docker compose exec langflow sh -c 'export LANGFLOW_DATABASE_URL="postgresql://langflow:$(python -c "import os,urllib.parse as u; print(u.quote(os.environ[\"POSTGRES_PASSWORD\"], safe=\"\"))")@postgres:5432/langflow"; langflow api-key'
    ```
-2. Export it:
-   ```sh
-   export LANGFLOW_API_KEY=<key>          # .mcp.json and direct API calls
-   export LANGFLOW_LOCAL_API_KEY=<key>    # lfx, see .lfx/environments.yaml
-   ```
+2. Put it in `.env` as `LANGFLOW_API_KEY=<key>`. The MCP server (`.mcp.json`, `uvx --env-file .env`) and `lfx` (`uv run --env-file .env lfx ... --env local`) read it from there. For `curl`, export it as well (`export LANGFLOW_API_KEY=<key>`).
 3. Send it in the `x-api-key` header:
    ```sh
    curl -X POST http://localhost:7860/api/v1/run/<flow_id> \
@@ -113,7 +108,7 @@ With `LANGFLOW_AUTO_LOGIN=true` the UI needs no credentials, but since Langflow 
      -d '{"input_value": "What is Langflow?", "input_type": "chat", "output_type": "chat"}'
    ```
 
-The agent flows use the [OpenAI Compatible provider](#llm) and need no OpenAI key. A flow that picks an OpenAI model in a component itself needs `OPENAI_API_KEY` in Settings → Global Variables (the name must match exactly). Never commit keys.
+`ruian-agent` uses the [OpenAI Compatible provider](#llm) and needs no OpenAI key. A flow that picks an OpenAI model in a component itself needs `OPENAI_API_KEY` in Settings → Global Variables (the name must match exactly). Never commit keys.
 
 For local development only, setting `LANGFLOW_SKIP_AUTH_AUTO_LOGIN=true` on the `langflow` service turns the API-key requirement off. Do not use it on a shared or exposed instance.
 
@@ -121,7 +116,7 @@ For local development only, setting `LANGFLOW_SKIP_AUTH_AUTO_LOGIN=true` on the 
 
 ```sh
 docker compose ps                 # service status
-docker compose pull && docker compose up -d   # update the image
+docker compose pull && docker compose up -d   # pull images (LiteLLM main-stable; Langflow only after changing its pinned tag)
 docker compose restart litellm    # after editing litellm_config.yaml
 docker compose logs -f litellm    # watch LLM requests
 docker compose down               # stop, keep data
@@ -202,7 +197,7 @@ The workflow is generated by `scripts/build_ruian_n8n_workflow.py`; the schema S
    ```sh
    uv run python scripts/smoke_ruian_search.py     # lists the tools and runs sample searches
    ```
-3. Push the agent flow (`lfx push --dir flows/ --env local`) or import `flows/ruian-agent.json` in the UI. The Agent is the same as in `simple-agent` and uses the [OpenAI Compatible model provider](#llm) (LiteLLM, `openrouter/free` by default). The flow embeds the component code, so no extra setup is needed. To use the tools in another flow, add the `RUIAN Search` node (copy it from `ruian-agent`) and connect its Toolset output to the Agent's Tools input.
+3. Push the agent flow (`uv run --env-file .env lfx push --dir flows/ --env local`) or import `flows/ruian-agent.json` in the UI. The Agent uses the [OpenAI Compatible model provider](#llm) (LiteLLM, `openrouter/free` by default). The flow embeds the component code, so no extra setup is needed. To use the tools in another flow, add the `RUIAN Search` node (copy it from `ruian-agent`) and connect its Toolset output to the Agent's Tools input.
 
 ### Usage
 
@@ -301,13 +296,13 @@ All tools also take `sort` (a list of keys; prefix `-` for descending), `limit` 
 ### Development
 
 - Component code: `components/ruian_search_component.py` (SQL builder and tools in one file, because Langflow runs the code embedded in the flow, not an import). The agent's system prompt is in `scripts/build_ruian_agent_flow.py`. After changing either, regenerate the flow with `uv run python scripts/build_ruian_agent_flow.py`, then push it again.
-- Agent model: `scripts/agent_llm.py` sets it in both agent flows. Regenerate them in this order, because `ruian-agent` copies its Agent from `simple-agent`: `uv run python scripts/build_simple_agent_flow.py && uv run python scripts/build_ruian_agent_flow.py`.
+- Agent model: set by `scripts/agent_llm.py`. All node templates (Chat Input, Agent, Chat Output, RUIAN Search) are generated from lfx, and every edge handle is derived from the node templates, so the UI does not drop edges. Keep the host lfx version (`uv.lock`) equal to the server's, so the embedded component code matches what Langflow runs.
 - Unit tests (SQL builder, tool schemas, error handling): `uv run --with pytest python -m pytest tests/test_ruian_search_component.py`. Add `--with 'psycopg[binary]'` to also run the test that loads the component from its code string.
 - The search schema (`SEARCH_DDL`) is in `scripts/ruian_schema.py`. After editing it, regenerate the n8n workflow (`uv run python scripts/build_ruian_n8n_workflow.py`) and run the import again; it applies the schema on every run.
 
 ## Notes
 
-- `latest` is pulled on every start (`pull_policy: always`). To pin a version, change the tag in `docker-compose.yml`; tags are on [Docker Hub](https://hub.docker.com/r/langflowai/langflow).
+- The Langflow image is pinned to `1.13.3`, the same lfx version as `uv.lock`, because the flows embed component code generated with it. A different server version upgrades that code when a flow is opened (an edge mismatch made the UI drop the Agent → Chat Output edge once). To upgrade, change the tag in `docker-compose.yml` ([Docker Hub](https://hub.docker.com/r/langflowai/langflow)), run `uv lock --upgrade-package lfx==<version>`, then rebuild and push the flow.
 - The database URL is built at container start from `POSTGRES_PASSWORD`, with the password URL-encoded, so special characters are safe.
 - Postgres is not published to the host. To reach it, add a `ports` entry to the `postgres` service or use `docker compose exec postgres psql -U langflow`.
 - Postgres reads `POSTGRES_PASSWORD` only when it first initializes the empty `langflow-postgres` volume. Changing it in `.env` later breaks Langflow's database login unless you run `docker compose down -v`, which deletes all data.

@@ -7,13 +7,14 @@
 #
 # Quick start:
 #   1. Open Langflow → Settings → API Keys → Create a new key
-#   2. export LANGFLOW_LOCAL_API_KEY=<your key>
-#   3. lfx export --env local --flow-id <uuid> --output-dir flows/
+#   2. Put LANGFLOW_API_KEY=<your key> in .env (or export it)
+#   3. uv run --env-file .env lfx push --dir flows/ --env local
 
 environments:
   local:
     url: http://localhost:7860
-    api_key_env: LANGFLOW_LOCAL_API_KEY
+    # Same variable as lfx-mcp (.mcp.json), so one key in .env serves both.
+    api_key_env: LANGFLOW_API_KEY
 
   staging:
     url: https://staging.langflow.example.com

@@ -4,8 +4,10 @@
 # Set RUIAN_IMPORT=true (in .env or the shell) to run the n8n RUIAN import before Langflow starts.
 services:
   langflow:
-    image: langflowai/langflow:latest # or pin a version tag from https://hub.docker.com/r/langflowai/langflow
-    pull_policy: always               # set to 'always' when using 'latest' image
+    # Pinned: the flows embed component code generated with the same lfx version (uv.lock, lfx 1.13.3).
+    # Upgrade both together: change this tag, `uv lock --upgrade-package lfx==<version>`, then rebuild
+    # and push the flows (scripts/build_ruian_agent_flow.py). Tags: https://hub.docker.com/r/langflowai/langflow
+    image: langflowai/langflow:1.13.3
     ports:
       - "7860:7860"
     depends_on:
@@ -32,7 +34,7 @@ services:
       # Imported as global variables on every start (updated unless edited in the UI). They configure the
       # "OpenAI Compatible" model provider (Settings -> Model Providers).
       - LANGFLOW_VARIABLES_TO_GET_FROM_ENVIRONMENT=OPENAI_COMPATIBLE_BASE_URL,OPENAI_COMPATIBLE_API_KEY
-      # Model provider "OpenAI Compatible" of the agent flows' Agent node. Default: the `litellm` service
+      # Model provider "OpenAI Compatible" of the ruian-agent flow's Agent node. Default: the `litellm` service
       # below. The model name is stored in the flows (scripts/build_*_agent_flow.py, LLM_MODEL).
       - OPENAI_COMPATIBLE_BASE_URL=${LLM_API_URL:-http://litellm:4000/v1}
       - OPENAI_COMPATIBLE_API_KEY=${LLM_API_KEY:-sk-local}
@@ -44,7 +46,7 @@ services:
     volumes:
       - langflow-data:/app/langflow
 
-  # LLM proxy for the agent flows (OpenAI-compatible API). Models: litellm_config.yaml.
+  # LLM proxy for the ruian-agent flow (OpenAI-compatible API). Models: litellm_config.yaml.
   # Host access (curl, `lfx run` on the host): http://127.0.0.1:4001/v1. Port 4001, so it does not clash
   # with the LiteLLM of the parent directory on 4000.
   litellm:
