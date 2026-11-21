@@ -62,14 +62,26 @@ INSERT INTO cast_obce (kod, nazev, obec_kod)
 INSERT INTO ulice (kod, nazev, obec_kod)
     SELECT DISTINCT ON (ulice_kod::int) ulice_kod::int, btrim(ulice_nazev), obec_kod::int
     FROM ruian_stage WHERE {t('ulice_kod')} IS NOT NULL ORDER BY ulice_kod::int;
+-- The full-address and position indexes are rebuilt after the insert; maintaining them row by row is
+-- much slower. The position column (poloha) is generated from the coordinates.
+DROP INDEX IF EXISTS adresni_misto_adresa_tsv_idx;
+DROP INDEX IF EXISTS adresni_misto_poloha_idx;
 INSERT INTO adresni_misto (kod, obec_kod, momc_kod, obvod_prahy_kod, cast_obce_kod, ulice_kod, typ_so,
                            cislo_domovni, cislo_orientacni, znak_cisla_orientacniho, psc,
-                           souradnice_y, souradnice_x, plati_od)
+                           souradnice_y, souradnice_x, plati_od, adresa_tsv)
     SELECT kod_adm::int, obec_kod::int, {t('momc_kod')}::int, {t('obvod_prahy_kod')}::int, cast_obce_kod::int,
            {t('ulice_kod')}::int, btrim(typ_so), cislo_domovni::int, {t('cislo_orientacni')}::int,
            {t('znak_cisla_orientacniho')}, btrim(psc), {t('souradnice_y')}::numeric, {t('souradnice_x')}::numeric,
-           {t('plati_od')}::timestamp::date
+           {t('plati_od')}::timestamp::date,
+           ruian_address_words({t('ulice_nazev')}, {t('cast_obce_nazev')}, {t('obec_nazev')}, {t('momc_nazev')},
+                               {t('obvod_prahy_nazev')}, cislo_domovni::int, {t('cislo_orientacni')}::int,
+                               {t('znak_cisla_orientacniho')}, btrim(psc))
     FROM ruian_stage;
+-- Run the deferred foreign-key checks now (all parents are loaded): CREATE INDEX refuses a table with
+-- pending trigger events.
+SET CONSTRAINTS ALL IMMEDIATE;
+CREATE INDEX adresni_misto_adresa_tsv_idx ON adresni_misto USING gin (adresa_tsv);
+CREATE INDEX adresni_misto_poloha_idx ON adresni_misto USING spgist (poloha);
 DROP TABLE ruian_stage;
 COMMIT;
 ANALYZE;

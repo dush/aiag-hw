@@ -3,14 +3,15 @@
 # in the flow (LLM_MODEL when it was built).
 # Needs OPENROUTER_API_KEY in .env.
 model_list:
-  # Default (LLM_MODEL default). OpenRouter's Free Models Router: picks a free model at random from
-  # the models that support the request (e.g. tool calling). Rate limited like all free models.
+  # OpenRouter's Free Models Router: picks a free model at random from the models that support the
+  # request (e.g. tool calling). Not the default: some of its models answer without calling the tools
+  # and invent addresses and distances. Rate limited like all free models.
   - model_name: openrouter/free
     litellm_params:
       model: openrouter/openrouter/free
       api_key: os.environ/OPENROUTER_API_KEY
 
-  # A fixed free model, for reproducible runs: LLM_MODEL=openrouter-gemma.
+  # Default (LLM_MODEL default). A fixed free model that calls the tools reliably.
   - model_name: openrouter-gemma
     litellm_params:
       model: openrouter/google/gemma-4-31b-it:free
@@ -21,11 +22,10 @@ litellm_settings:
   drop_params: true
 
 router_settings:
-  # Free models are often rate limited upstream (429); retry with backoff.
+  # Free models are often rate limited upstream (429); retry with backoff. No fallback to
+  # openrouter/free: a rate limit is an error in the chat, not an answer from a random model.
   num_retries: 2
   retry_after: 5
-  fallbacks:
-    - openrouter-gemma: ["openrouter/free"]
 
 general_settings:
   # Local development only: the proxy refuses to start without a master key. The port is bound to

@@ -9,7 +9,7 @@ Langflow global variables that docker-compose.yml imports from the environment:
 
 The model name is stored in the flow, so it is read here, at build time:
 
-    LLM_MODEL  (process environment, default openrouter/free)
+    LLM_MODEL  (process environment, default openrouter-gemma)
 """
 
 import json
@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PROVIDER = "OpenAI Compatible"
-DEFAULT_MODEL = "openrouter/free"
+DEFAULT_MODEL = "openrouter-gemma"
 
 
 def handle(obj: dict) -> str:

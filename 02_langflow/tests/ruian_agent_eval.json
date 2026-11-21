@@ -1,0 +1,278 @@
+{
+  "description": "Question set for scripts/eval_ruian_agent.py. Each answer is normalized (lowercase, no diacritics, digit groups joined: '110 00' -> '11000', decimal comma -> dot) and must match every regex in `expect` and none in `forbid`. Tags: baseline = should work with the original tools; new = needs a feature added later (total, name_mode, search_address, lat/lon). `sql` is the ground truth query on the `ruian` database (data/20261031_OB_ADR_csv.zip).",
+  "questions": [
+    {
+      "id": "psc_vodickova_cs",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "Jaké PSČ má adresa Vodičkova 36 v Praze?",
+      "expect": [
+        "11000"
+      ],
+      "sql": "SELECT a.psc FROM adresni_misto a JOIN ulice u ON u.kod=a.ulice_kod WHERE a.obec_kod=554782 AND u.nazev='Vodičkova' AND a.cislo_orientacni=36"
+    },
+    {
+      "id": "psc_vodickova_en",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "What is the postal code of Vodičkova 36 in Prague?",
+      "expect": [
+        "11000"
+      ],
+      "sql": "same as psc_vodickova_cs"
+    },
+    {
+      "id": "building_number",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "Jaké číslo popisné má dům Vodičkova 36 v Praze?",
+      "expect": [
+        "\\b704\\b"
+      ],
+      "sql": "SELECT a.cislo_domovni FROM adresni_misto a JOIN ulice u ON u.kod=a.ulice_kod WHERE a.obec_kod=554782 AND u.nazev='Vodičkova' AND a.cislo_orientacni=36"
+    },
+    {
+      "id": "karlovo_namesti",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "Jaké PSČ má Karlovo náměstí 13 v Praze a ve které části obce leží?",
+      "expect": [
+        "12000",
+        "nove mesto"
+      ],
+      "sql": "SELECT a.psc, c.nazev FROM adresni_misto a JOIN ulice u ON u.kod=a.ulice_kod JOIN cast_obce c ON c.kod=a.cast_obce_kod WHERE a.obec_kod=554782 AND u.nazev='Karlovo náměstí' AND a.cislo_orientacni=13"
+    },
+    {
+      "id": "brno_inflected",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "Jaké je PSČ adresy náměstí Svobody 1 v Brně?",
+      "expect": [
+        "60200"
+      ],
+      "sql": "SELECT a.psc FROM adresni_misto a JOIN ulice u ON u.kod=a.ulice_kod WHERE a.obec_kod=582786 AND u.nazev='náměstí Svobody' AND a.cislo_orientacni=1"
+    },
+    {
+      "id": "village_without_street",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "Najdi adresu Bukovina číslo popisné 5 s PSČ 679 05 a napiš ji celou.",
+      "expect": [
+        "bukovina 5",
+        "67905"
+      ],
+      "sql": "SELECT a.kod, a.psc FROM adresni_misto a JOIN obec o ON o.kod=a.obec_kod WHERE o.nazev='Bukovina' AND a.ulice_kod IS NULL AND a.cislo_domovni=5 AND a.psc='67905'"
+    },
+    {
+      "id": "nonexistent_address",
+      "tags": [
+        "baseline",
+        "address"
+      ],
+      "question": "Jaké PSČ má adresa Vodičkova 999 v Praze?",
+      "expect": [
+        "(neexist|nenasel|nenasla|nenalez|nebyl[ao]? nalez|zadn[aeyo]|nelze|not found|does not exist|no address|couldn.t find|nepodarilo)"
+      ],
+      "sql": "SELECT count(*) FROM adresni_misto a JOIN ulice u ON u.kod=a.ulice_kod WHERE a.obec_kod=554782 AND u.nazev='Vodičkova' AND a.cislo_orientacni=999  -- 0"
+    },
+    {
+      "id": "word_prefix_streets",
+      "tags": [
+        "baseline",
+        "streets"
+      ],
+      "question": "Které ulice v Brně mají v názvu slovo začínající na „nádraž“?",
+      "expect": [
+        "nadrazni",
+        "nad nadrazim"
+      ],
+      "sql": "SELECT nazev FROM ulice WHERE obec_kod=582786 AND nazev_tsv @@ to_tsquery('simple','nadraz:*')"
+    },
+    {
+      "id": "starts_with_streets",
+      "tags": [
+        "new",
+        "streets",
+        "name_mode"
+      ],
+      "question": "Které ulice v Brně začínají na „Nádraž“? Uveď jen ty, jejichž celý název tak začíná.",
+      "expect": [
+        "nadrazni"
+      ],
+      "forbid": [
+        "nad nadrazim"
+      ],
+      "sql": "SELECT nazev FROM ulice WHERE obec_kod=582786 AND ruian_norm(nazev) LIKE 'nadraz%'  -- only Nádražní"
+    },
+    {
+      "id": "turnov_parts",
+      "tags": [
+        "baseline",
+        "streets"
+      ],
+      "question": "Jaké části obce má Turnov?",
+      "expect": [
+        "masov",
+        "pelesany",
+        "dalimerice",
+        "vazovec",
+        "hruby rohozec"
+      ],
+      "sql": "SELECT c.nazev FROM cast_obce c JOIN obec o ON o.kod=c.obec_kod WHERE o.nazev='Turnov'  -- 13 parts"
+    },
+    {
+      "id": "vodickova_districts",
+      "tags": [
+        "baseline",
+        "districts"
+      ],
+      "question": "Ve kterých městských částech Prahy leží ulice Vodičkova?",
+      "expect": [
+        "praha 1",
+        "praha 2"
+      ],
+      "sql": "SELECT DISTINCT m.nazev FROM adresni_misto a JOIN ulice u ON u.kod=a.ulice_kod JOIN momc m ON m.kod=a.momc_kod WHERE a.obec_kod=554782 AND u.nazev='Vodičkova'"
+    },
+    {
+      "id": "kutna_hora_postal_codes",
+      "tags": [
+        "baseline",
+        "postal_codes"
+      ],
+      "question": "Jaká PSČ se používají v obci Kutná Hora?",
+      "expect": [
+        "28401",
+        "28403",
+        "28404"
+      ],
+      "sql": "SELECT DISTINCT a.psc FROM adresni_misto a JOIN obec o ON o.kod=a.obec_kod WHERE o.nazev='Kutná Hora'"
+    },
+    {
+      "id": "count_brno_districts",
+      "tags": [
+        "baseline",
+        "count"
+      ],
+      "question": "Kolik městských částí (MOMC) má Brno?",
+      "expect": [
+        "\\b29\\b"
+      ],
+      "sql": "SELECT count(*) FROM momc WHERE obec_kod=582786  -- 29"
+    },
+    {
+      "id": "count_lhota",
+      "tags": [
+        "baseline",
+        "count"
+      ],
+      "question": "Kolik obcí se jmenuje přesně Lhota?",
+      "expect": [
+        "(\\b4\\b|ctyri)"
+      ],
+      "sql": "SELECT count(*) FROM obec WHERE nazev='Lhota'  -- 4"
+    },
+    {
+      "id": "count_plzen_streets",
+      "tags": [
+        "new",
+        "count",
+        "total"
+      ],
+      "question": "Kolik ulic má Plzeň?",
+      "expect": [
+        "\\b1206\\b"
+      ],
+      "sql": "SELECT count(*) FROM ulice u JOIN obec o ON o.kod=u.obec_kod WHERE o.nazev='Plzeň'  -- 1206"
+    },
+    {
+      "id": "count_psc_addresses",
+      "tags": [
+        "new",
+        "count",
+        "total"
+      ],
+      "question": "Kolik adresních míst má PSČ 110 00?",
+      "expect": [
+        "\\b2860\\b"
+      ],
+      "sql": "SELECT count(*) FROM adresni_misto WHERE psc='11000'  -- 2860"
+    },
+    {
+      "id": "gps_vodickova",
+      "tags": [
+        "new",
+        "gps"
+      ],
+      "question": "Jaké jsou GPS souřadnice (WGS84) adresy Vodičkova 36 v Praze?",
+      "expect": [
+        "50\\.08",
+        "14\\.42"
+      ],
+      "sql": "souradnice_y=742614.93, souradnice_x=1043719.26 -> pyproj EPSG:5514->4326: lat 50.081412, lon 14.425295"
+    },
+    {
+      "id": "gps_brno",
+      "tags": [
+        "new",
+        "gps"
+      ],
+      "question": "Jaké GPS souřadnice má adresa náměstí Svobody 1 v Brně?",
+      "expect": [
+        "49\\.19",
+        "16\\.60"
+      ],
+      "sql": "souradnice_y=598212.69, souradnice_x=1160715.55 -> pyproj EPSG:5514->4326: lat 49.195390, lon 16.607256"
+    },
+    {
+      "id": "distance_vodickova_karlovo",
+      "tags": [
+        "new",
+        "distance"
+      ],
+      "question": "Jaká je vzdálenost mezi adresami Vodičkova 36 a Karlovo náměstí 13 v Praze?",
+      "expect": [
+        "(\\b7[23]\\d\\s?m|0\\.7[23]\\d?\\s?km)",
+        "(vzdusn|primo|\\bprima\\b|primkov|crow|straight)"
+      ],
+      "sql": "Euclidean distance of souradnice_y/x of 21704970 and 21728208 = 730 m (straight line)"
+    },
+    {
+      "id": "nearest_address",
+      "tags": [
+        "new",
+        "distance"
+      ],
+      "question": "Která adresa je nejblíže k adrese Vodičkova 36 v Praze a jak daleko je?",
+      "expect": [
+        "vodickova 707/37",
+        "\\b22\\s?m"
+      ],
+      "sql": "nearest to 21704970 (excluding itself): 21704988 Vodičkova 707/37 at 22 m"
+    },
+    {
+      "id": "distance_two_villages",
+      "tags": [
+        "new",
+        "distance"
+      ],
+      "question": "Jaká je vzdálenost mezi Sokolská 245, Zborovice a Nádražní 315, Morkovice-Slížany?",
+      "expect": [
+        "(\\b56[4-5]\\d\\s?m|5[.,]6\\d*\\s?km)",
+        "(vzdusn|primo|\\bprima\\b|primkov|crow|straight)"
+      ],
+      "sql": "SELECT round(a.poloha <-> b.poloha) FROM adresni_misto a, adresni_misto b WHERE a.kod=16036301 AND b.kod=10277528  -- 5649 m (randomly chosen pair, both municipality names unique)"
+    }
+  ]
+}

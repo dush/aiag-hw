@@ -89,4 +89,27 @@ CREATE INDEX IF NOT EXISTS cast_obce_obec_idx ON cast_obce (obec_kod);
 CREATE INDEX IF NOT EXISTS ulice_obec_idx ON ulice (obec_kod);
 CREATE INDEX IF NOT EXISTS adresni_misto_momc_idx ON adresni_misto (momc_kod);
 CREATE INDEX IF NOT EXISTS adresni_misto_obvod_prahy_idx ON adresni_misto (obvod_prahy_kod);
+-- Full-address search (tool search_address): one word set per address place with the names of its street,
+-- municipality part, municipality and districts, its numbers ('704', '36', '36a') and postal code. Built with
+-- the same tokenizer as the search query (ruian_norm, split on non-alphanumerics), not to_tsvector, whose
+-- parser would keep '704/36' together. NULL parts are skipped (concat_ws). The n8n import fills the column
+-- from its staging table and rebuilds the index after loading.
+CREATE OR REPLACE FUNCTION ruian_address_words(street text, part text, municipality text, city_district text,
+                                               prague_district text, building int, orientation int,
+                                               letter text, psc text) RETURNS tsvector
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    RETURN array_to_tsvector(array_remove(regexp_split_to_array(
+        ruian_norm(concat_ws(' ', street, part, municipality, city_district, prague_district, building::text,
+                             orientation::text, orientation::text || lower(letter), psc)),
+        '[^a-z0-9]+'), ''));
+ALTER TABLE adresni_misto ADD COLUMN IF NOT EXISTS adresa_tsv tsvector;
+CREATE INDEX IF NOT EXISTS adresni_misto_adresa_tsv_idx ON adresni_misto USING gin (adresa_tsv);
+-- Position for distances (tools search_nearby, address_distances): point(y, x) in S-JTSK metres, the
+-- RUIAN coordinates as they are. S-JTSK is a projection for Czechia, so `<->` between two points is the
+-- straight-line distance in metres (no extension needed). NULL for the few addresses without coordinates.
+-- SP-GiST serves `<@ box` (radius pre-filter) and `ORDER BY poloha <-> point` (nearest first). Adding the
+-- column to a loaded table rewrites it once; the n8n import rebuilds the index after loading.
+ALTER TABLE adresni_misto ADD COLUMN IF NOT EXISTS poloha point
+    GENERATED ALWAYS AS (point(souradnice_y::float8, souradnice_x::float8)) STORED;
+CREATE INDEX IF NOT EXISTS adresni_misto_poloha_idx ON adresni_misto USING spgist (poloha);
 """
