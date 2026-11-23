@@ -1,0 +1,24 @@
+[project]
+name = "company-checker"
+version = "0.1.0"
+description = "Company checker: LangGraph plan-and-execute agent with MCP tools (ARES, Wikipedia, Tavily)"
+requires-python = ">=3.14"
+dependencies = [
+    "langchain[mcp]>=1.5.2",
+    "langchain-openai>=1.8.5",
+    "langgraph>=1.2.24",
+    "pydantic>=2.14.4",
+    "python-dotenv>=1.2.4",
+    "fastmcp>=4.2.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

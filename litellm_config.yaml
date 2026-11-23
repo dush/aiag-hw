@@ -13,6 +13,11 @@ model_list:
       model: openrouter/google/gemma-4-31b-it:free
       api_key: os.environ/OPENROUTER_API_KEY
 
+  - model_name: openrouter-nemotron-3-ultra
+    litellm_params:
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
   # Fallback on a different provider, used when the Gemma pool is rate limited.
   - model_name: openrouter-minimax
     litellm_params:

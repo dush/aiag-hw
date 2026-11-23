@@ -1,0 +1,26 @@
+[
+  {
+    "id": "by-ico",
+    "question": "Prověř firmu s IČO 27082440. Kdo to je, odkdy existuje a je v pořádku?",
+    "expect_all": ["Alza", "2003"],
+    "expect_tools": ["get_entity"]
+  },
+  {
+    "id": "by-name-board",
+    "question": "Kdo je ve statutárním orgánu společnosti Kofola ČeskoSlovensko a.s.?",
+    "expect_all": ["24261980"],
+    "expect_tools": ["search_entities", "get_register_record"]
+  },
+  {
+    "id": "capital-seat",
+    "question": "Jaký je základní kapitál společnosti ČEZ, a. s. (IČO 45274649) a kde sídlí?",
+    "expect_all": ["Duhová"],
+    "expect_tools": ["get_register_record"]
+  },
+  {
+    "id": "not-found",
+    "question": "Prověř firmu s IČO 99999994.",
+    "expect_any": ["nenalez", "neexist", "není zapsán", "není v ares", "not found"],
+    "expect_tools": ["get_entity"]
+  }
+]
